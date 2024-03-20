@@ -1,0 +1,4 @@
+cod_999,boala_denumire,simptome,medicamentatie,medic_specialist,Urgency,probabilitate
+560,Dispepsia,greturi.varsaturi.durere de stomac,meteclopramid 1tb /caz greata,gastero,semi-urgent,8/10
+562,Apendicita acuta,febra.durere abdominala in abdomenul inferior. varsaturi,,chirurgie generala,urgent,9/10
+569,gastroenterite,varsaturi.greata.diaree.febra,"tasectan 8 tablete/zi(4 dim,4 seara), no-spa 2 /zi(1dim, 1 seara), motilium 2 /zi(1dim, 1 seara)",gastero/boli infectioase,semi-urgent,7/10

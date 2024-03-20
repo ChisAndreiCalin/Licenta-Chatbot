@@ -1,0 +1,6 @@
+Keywords,ResponseType,Response
+"sick.ill.unwell",diagnostic,"Let's try to understand your symptoms. Please describe them in more detail."
+"medicine.drug",medicine_info,"Please provide the name of the medicine you want to learn about."
+"mistake.wrong.error",mistake,"I apologize if there was an error. Could you provide more details about the mistake?"
+"hello",greeting,"Hello! How may I assist you today?"
+"bye.goodbye",farewell,"Thank you for using our service. Goodbye!"
