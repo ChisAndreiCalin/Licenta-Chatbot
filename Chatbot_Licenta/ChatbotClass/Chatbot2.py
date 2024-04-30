@@ -3,6 +3,8 @@ from fuzzywuzzy import process
 import random
 from datetime import datetime, timedelta
 import hashlib
+import ast
+
 
 
 class Chatbot:
@@ -14,11 +16,16 @@ class Chatbot:
         self.mistakes_csv = mistakes_csv
         self.diseases_df = pd.read_csv(diseases_csv)
 
-        self.users_df = self.load_csv(self.users_csv, ['Username', 'Password', 'Age', 'Weight', 'Height', 'LastLogin', 'CreationDate'])
-        self.medicines_df = self.load_csv(self.medicines_csv, ['Denumirea comerciala','DCI','Forma','Conc','Firma / Tara detinatoare,Ambalaj','Pres.','ATC','Details'])
+        self.users_df = self.load_csv(self.users_csv, ['Username', 'Password', 'Age', 'Weight', 'Height', 'Type', 'LastLogin', 'CreationDate'])
+        self.medicines_df = self.load_csv(self.medicines_csv, ['Denumirea comerciala', 'DCI', 'Forma', 'Conc', 'Firma / Tara detinatoare,Ambalaj', 'Pres.', 'ATC', 'Details'])
         self.responses_df = self.load_csv(self.responses_csv, ['Keywords', 'ResponseType', 'Response'])
-        self.mistakes_df = self.load_csv(self.mistakes_csv, ['Original', 'Correction'])
-        
+        self.mistakes_df = self.load_csv(self.mistakes_csv, ['mistake_type', 'original_mistake', 'correct_answer', 'reporters', 'admin_reviews'])
+        # Assuming mistakes_df is your DataFrame
+        if 'reporters' not in self.mistakes_df.columns:
+            self.mistakes_df['reporters'] = [[] for _ in range(len(self.mistakes_df))]
+        if 'admin_reviews' not in self.mistakes_df.columns:
+            self.mistakes_df['admin_reviews'] = [[] for _ in range(len(self.mistakes_df))]
+
         self.current_user = None
 
     def load_csv(self, file_path, columns):
@@ -37,42 +44,102 @@ class Chatbot:
 
     def register_user(self):
         username = input("Choose a username: ")
+        # Check if username is unique
+        if (username==self.users_df['Username']).any():
+            print("This username is already taken. Please choose a different one.")
+            return
+
         password = input("Choose a password: ")
-        hashed_password = self.hash_password(password)  # Use the internal method
         age = input("Enter your age: ")
         weight = input("Enter your weight (kg): ")
         height = input("Enter your height (cm): ")
+        # Special password prompt
+        special_password = input("Enter the special password (leave blank if you are a customer): ")
+
+        user_type = "Customer"  # Default user type
+        if special_password == "12345678":
+            user_type = "Admin"
+        elif special_password == "87654321":
+            user_type = "Doctor"
+
+        hashed_password = self.hash_password(password)  # Use the internal method to hash the password
         creation_date = datetime.now()
         new_user = {
             'Username': username, 'Password': hashed_password, 'Age': age,
-            'Weight': weight, 'Height': height, 'LastLogin': creation_date, 'CreationDate': creation_date
+            'Weight': weight, 'Height': height, 'Type': user_type,
+            'LastLogin': creation_date, 'CreationDate': creation_date
         }
         self.users_df = self.users_df._append(new_user, ignore_index=True)
         self.users_df.to_csv(self.users_csv, index=False)
         self.current_user = username
-        print(f"Welcome, {username}! You have been registered.")
+        print(f"Welcome, {username}! You have been registered as a {user_type}.")
 
     def login_user(self):
         username = input("Username: ")
         password = input("Password: ")
+
         user = self.users_df[self.users_df['Username'] == username].iloc[0]
         if self.check_password(user['Password'], password):  # Use the internal method
             self.current_user = username
             print(f"Welcome back, {username}!")
             self.check_health_update_needed(user)
+
+            # If the user is an Admin, prompt for mistake review
+            if user['Type'] == 'Admin':
+                self.review_mistakes()
         else:
             print("Invalid username or password.")
+    def review_mistakes(self):
+        # Ensure the DataFrame is correctly handling lists
+        for column in ['reporters', 'admin_reviews']:
+            if column in self.mistakes_df.columns:
+                self.mistakes_df[column] = self.mistakes_df[column].apply(
+                    lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
+            else:
+                # Initialize column with empty lists if it doesn't exist
+                self.mistakes_df[column] = [[] for _ in range(len(self.mistakes_df))]
+        to_review = self.mistakes_df[(self.mistakes_df['reporters'].apply(lambda x: len(x) >= 2)) & (
+            ~self.mistakes_df['admin_reviews'].apply(lambda x: self.current_user in x))]
+
+        if to_review.empty:
+            print("No new mistakes to review.")
+            return
+
+        for index, mistake in to_review.iterrows():
+            print(
+                f"Mistake ID: {index}, Type: {mistake['mistake_type']}, Original: {mistake['original_mistake']}, Correction: {mistake['correct_answer']}")
+            action = input("Approve correction? (yes/no): ").lower()
+            if action == 'yes':
+                # Process correction...
+                print("Correction approved and processed.")
+            else:
+                print("Correction rejected.")
+
+            # Update the admin_reviews list
+            admin_reviews = self.mistakes_df.at[index, 'admin_reviews']
+            admin_reviews.append(self.current_user)
+            self.mistakes_df.at[index, 'admin_reviews'] = admin_reviews
+
+        self.mistakes_df.to_csv(self.mistakes_csv, index=False)
 
     def check_health_update_needed(self, user):
         last_update = datetime.strptime(user['LastLogin'], '%Y-%m-%d %H:%M:%S.%f')
         if datetime.now() > last_update + timedelta(days=30):
             print("It's been a while since your last health profile update.")
-            age = input("Please enter your age: ")
-            weight = input("Please enter your weight (kg): ")
-            height = input("Please enter your height (cm): ")
+
+            # Convert input values to integers before assigning them to DataFrame
+            age = int(input("Please enter your age: "))
+            weight = int(input("Please enter your weight (kg): "))
+            height = int(input("Please enter your height (cm): "))
+
             user_index = self.users_df[self.users_df['Username'] == self.current_user].index[0]
-            self.users_df.at[user_index, ['Age', 'Weight', 'Height']] = [age, weight, height]
-            self.users_df.at[user_index, 'LastLogin'] = datetime.now()
+
+            # Update the user's information with correctly typed values
+            self.users_df.loc[user_index, 'Age'] = age
+            self.users_df.loc[user_index, 'Weight'] = weight
+            self.users_df.loc[user_index, 'Height'] = height
+            self.users_df.loc[user_index, 'LastLogin'] = datetime.now()
+
             self.users_df.to_csv(self.users_csv, index=False)
             print("Health profile updated.")
         else:
@@ -233,12 +300,35 @@ class Chatbot:
         print(f"For {disease}, consider taking: {medication}")
 
     def record_feedback(self):
-        print("You indicated that the information provided might be incorrect.")
-        original_info = input("What was the incorrect information? ")
-        correction = input("Please provide the correct information, if known: ")
-        self.mistakes_df = self.mistakes_df.append({'Original': original_info, 'Correction': correction}, ignore_index=True)
-        self.mistakes_df.to_csv('mistakes.csv', index=False)
-        print("Thank you for your feedback. It has been recorded for review.")
+        if self.current_user is None or self.users_df[self.users_df['Username'] == self.current_user]['Type'].iloc[0] not in ['Doctor', 'Admin']:
+            print("You must be a Doctor or Admin to provide feedback.")
+            return
+
+        mistake_type = input("Is this mistake related to a 'medicine' or a 'disease'? ")
+        original_mistake = input("Please specify the original information (e.g., row name or disease/medicine name): ")
+        correct_answer = input("Please provide the full correct row or information: ")
+
+        # Check if a similar mistake has already been reported
+        existing_mistake = self.mistakes_df[(self.mistakes_df['mistake_type'] == mistake_type) & (
+                    self.mistakes_df['original_mistake'] == original_mistake)]
+
+        if not existing_mistake.empty:
+            # If similar mistake exists, append the current user to the reporters list (if they haven't already reported it)
+            if self.current_user not in existing_mistake['reporters'].iloc[0]:
+                existing_mistake['reporters'].iloc[0].append(self.current_user)
+                print("Your report has been added to an existing mistake report.")
+        else:
+            # If it's a new mistake, create a new record
+            self.mistakes_df = self.mistakes_df.append({
+                'mistake_type': mistake_type,
+                'original_mistake': original_mistake,
+                'correct_answer': correct_answer,
+                'reporters': [self.current_user],
+                'admin_reviews': []
+            }, ignore_index=True)
+            print("Your feedback has been recorded for review.")
+
+        self.mistakes_df.to_csv(self.mistakes_csv, index=False)
 
     def respond_dynamically(self, message):
         intent, _ = process.extractOne(message, self.responses_df['Keywords'].unique())
