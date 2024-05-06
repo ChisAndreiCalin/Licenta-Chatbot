@@ -1,25 +1,23 @@
 import pandas as pd
-from fuzzywuzzy import process, fuzz
+from fuzzywuzzy import process
 import random
 from datetime import datetime, timedelta
 import hashlib
 import ast
-import re
+
 
 
 class Chatbot:
-    def __init__(self, users_csv, diseases_csv, medicines_csv, responses_csv, mistakes_csv, doctor_schedule_csv):
+    def __init__(self, users_csv, diseases_csv, medicines_csv, responses_csv, mistakes_csv):
         self.users_csv = users_csv
         self.diseases_csv = diseases_csv
         self.medicines_csv = medicines_csv
         self.responses_csv = responses_csv
         self.mistakes_csv = mistakes_csv
         self.diseases_df = pd.read_csv(diseases_csv)
-        self.doctor_schedule_csv = doctor_schedule_csv
-        self.doctor_schedule_df = self.load_csv(doctor_schedule_csv, ['Username', 'Date', 'AvailableSlots'])
 
-        self.users_df = self.load_csv(self.users_csv, ['Username', 'Password', 'Age', 'Weight', 'Height', 'Type', 'LastLogin', 'CreationDate' 'Specialty'])
-        self.medicines_df = self.load_csv(self.medicines_csv, ['Denumirea comerciala', 'DCI', 'Forma', 'Conc', 'Firma / Tara detinatoare,Ambalaj', 'Pres.', 'ATC', 'Doza_Adult','Doza_Copil','Simptome_combatute'])
+        self.users_df = self.load_csv(self.users_csv, ['Username', 'Password', 'Age', 'Weight', 'Height', 'Type', 'LastLogin', 'CreationDate'])
+        self.medicines_df = self.load_csv(self.medicines_csv, ['Denumirea comerciala', 'DCI', 'Forma', 'Conc', 'Firma / Tara detinatoare,Ambalaj', 'Pres.', 'ATC', 'Details'])
         self.responses_df = self.load_csv(self.responses_csv, ['Keywords', 'ResponseType', 'Response'])
         self.mistakes_df = self.load_csv(self.mistakes_csv, ['mistake_type', 'original_mistake', 'correct_answer', 'reporters', 'admin_reviews'])
         # Assuming mistakes_df is your DataFrame
@@ -30,17 +28,10 @@ class Chatbot:
 
         self.current_user = None
 
-
-
-
     def load_csv(self, file_path, columns):
         try:
             return pd.read_csv(file_path)
         except FileNotFoundError:
-            print(f"File {file_path} not found. Using empty DataFrame with columns {columns}.")
-            return pd.DataFrame(columns=columns)
-        except pd.errors.ParserError:
-            print(f"Error parsing {file_path}. Check if the CSV format is correct.")
             return pd.DataFrame(columns=columns)
 
     def hash_password(self, password):
@@ -54,7 +45,7 @@ class Chatbot:
     def register_user(self):
         username = input("Choose a username: ")
         # Check if username is unique
-        if (username == self.users_df['Username']).any():
+        if (username==self.users_df['Username']).any():
             print("This username is already taken. Please choose a different one.")
             return
 
@@ -70,11 +61,6 @@ class Chatbot:
             user_type = "Admin"
         elif special_password == "87654321":
             user_type = "Doctor"
-            # Ask for doctor's speciality
-            speciality = input("Enter your speciality: ").strip().upper()
-            while not speciality:
-                print("Speciality cannot be empty.")
-                speciality = input("Enter your speciality: ").strip().upper()
 
         hashed_password = self.hash_password(password)  # Use the internal method to hash the password
         creation_date = datetime.now()
@@ -83,12 +69,11 @@ class Chatbot:
             'Weight': weight, 'Height': height, 'Type': user_type,
             'LastLogin': creation_date, 'CreationDate': creation_date
         }
-        if user_type == "Doctor":
-            new_user['Speciality'] = speciality
-        self.users_df = pd.concat([self.users_df, pd.DataFrame([new_user])], ignore_index=True)
+        self.users_df = self.users_df._append(new_user, ignore_index=True)
         self.users_df.to_csv(self.users_csv, index=False)
         self.current_user = username
         print(f"Welcome, {username}! You have been registered as a {user_type}.")
+
     def login_user(self):
         username = input("Username: ")
         password = input("Password: ")
@@ -161,73 +146,20 @@ class Chatbot:
             print("Your health profile is up to date.")
 
     def provide_medicine_info(self):
-        print("Please provide the name of the medicine you want to learn about.")
-        medicine_name = self.get_user_medicine()
-
-        if not medicine_name:
-            print("No medicine name provided. Exiting the medicine info request.")
-            return
-
-        # Case-insensitive exact match from user-confirmed or directly provided input
-        medicine_name = medicine_name.lower()
-        matches = self.medicines_df[self.medicines_df['Denumirea comerciala'].str.lower() == medicine_name]
+        medicine_name = input("Please enter (or re-enter) the medicine name you want to know more about: ").strip()
+        # Find all matches for the medicine name
+        matches = self.medicines_df[self.medicines_df['Denumirea comerciala'].str.lower() == medicine_name.lower()]
 
         if matches.empty:
             print(
-                "Sorry, we couldn't find any information on the requested medicine. Please check the spelling or try another name.")
+                "Sorry, we couldn't find information on the requested medicine. Please check the spelling or try another medicine name.")
         else:
             print(f"Found {len(matches)} medicine(s) with the name '{medicine_name}':")
             for index, medicine_info in matches.iterrows():
                 print("\nMedicine Information:")
+                # Iterate over each column in the row and print the information
                 for column in matches.columns:
-                    if pd.notna(medicine_info[column]) and medicine_info[column] != '':
-                        print(f"{column.replace('_', ' ')}: {medicine_info[column]}")
-
-    def preprocess_medicine_names(self):
-        # Extract base name by selecting the first part before any dosage or unit information
-        self.medicines_df['Simple Name'] = self.medicines_df['Denumirea comerciala'].apply(
-            lambda x: x.split()[0].upper())
-        # Create a dictionary mapping simple names to their respective full commercial names
-        self.simple_to_full_name = \
-        self.medicines_df[['Simple Name', 'Denumirea comerciala']].drop_duplicates().set_index('Simple Name')[
-            'Denumirea comerciala'].to_dict()
-
-    def get_user_medicine(self):
-        if 'Simple Name' not in self.medicines_df.columns:
-            self.preprocess_medicine_names()
-        unique_medicines = list(self.medicines_df['Simple Name'].str.upper().unique())
-
-        while True:
-            medicine_input = input(
-                "Enter the medicine name you're looking for (or 'done' if you're finished): ").strip().upper()
-            if medicine_input == 'done':
-                return None
-
-            possible_matches = process.extractBests(medicine_input, unique_medicines, scorer=fuzz.token_sort_ratio,
-                                                    limit=5)
-
-            if possible_matches:
-                print("Did you mean one of these?")
-                for i, (match, score) in enumerate(possible_matches):
-                    full_medicine_name = self.simple_to_full_name.get(match, match)
-                    print(f"{i + 1}. {full_medicine_name} ({score}%)")
-
-                choice = input(
-                    "Please enter the number or name of the correct medicine from the list above, or type 'retry' to try again: ").strip()
-                if choice.isdigit() and 1 <= int(choice) <= len(possible_matches):
-                    selected_medicine = possible_matches[int(choice) - 1][0]  # Get simple name from matches
-                    full_medicine_name = self.simple_to_full_name[
-                        selected_medicine]  # Map simple name to full name correctly
-                    return full_medicine_name
-                elif any(choice.lower() == match[0].lower() for match in possible_matches):
-                    return self.simple_to_full_name[choice.upper()]
-                elif choice.lower() == 'retry':
-                    continue
-                else:
-                    print("Invalid selection, please try again.")
-            else:
-                print("No close matches found. Please try again.")
-
+                    print(f"{column}: {medicine_info[column]}")
     def login_or_register(self):
         user_action = input("Do you want to (login) or (register)? ").lower().strip()
         while user_action not in ["login", "register"]:
@@ -270,44 +202,13 @@ class Chatbot:
                 self.diagnose_symptom()
             elif response_type == "medicine":
                 self.provide_medicine_info()
-            elif response_type == "symptom_medicine":
-                user_age = int(self.users_df[self.users_df['Username'] == self.current_user]['Age'].iloc[0])
-
-                self.handle_symptom_medicine_request(user_age)
             elif response_type == "mistake":
                 self.record_feedback()
-            if any(phrase in user_input for phrase in ["thank you", "bye", "that will be all", "logout"]):
+            elif any(phrase in user_input for phrase in ["thank you", "bye", "that will be all", "logout"]):
                 print("You're welcome! I'm here whenever you need assistance. Goodbye for now.")
                 break
             else:
                 self.respond_dynamically(user_input)
-
-    def handle_symptom_medicine_request(self, user_age):
-        print("Please specify the symptom you're experiencing, and I'll help find suitable medicine.")
-        symptom = input("Symptom: ").lower().strip()
-
-        # Filter medicines based on the provided symptom
-        matched_medicines = self.medicines_df[self.medicines_df['Simptome_combatute'].str.lower().str.contains(symptom)]
-
-        if matched_medicines.empty:
-            print("No medicines found for the provided symptom.")
-        else:
-            print("Medicines for the provided symptom:")
-            unique_simple_names = set()
-            for index, medicine_info in matched_medicines.iterrows():
-                # Get the simple name of the medicine
-                simple_name = medicine_info['Denumirea comerciala'].split()[0].upper()
-                unique_simple_names.add(simple_name)
-
-            for simple_name in unique_simple_names:
-                # Get the full name of the medicine from the dataframe
-                full_name = matched_medicines[matched_medicines['Denumirea comerciala'].str.startswith(simple_name)][
-                    'Denumirea comerciala'].iloc[0]
-                # Get the appropriate dosage based on age
-                dosage_column = 'Doza_Adult' if user_age > 16 else 'Doza_Copil'
-                dosage = matched_medicines[matched_medicines['Denumirea comerciala'].str.startswith(simple_name)][
-                    dosage_column].iloc[0]
-                print(f"Medicine: {full_name}, Dosage: {dosage}")
     def get_user_symptom(self):
             unique_symptoms = set()
             # Split symptoms in the DataFrame and create a unique list
@@ -373,102 +274,6 @@ class Chatbot:
             urgency = self.diseases_df[self.diseases_df['boala_denumire'] == disease]['Urgency'].iloc[0]
             self.recommend_specialist_based_on_urgency(disease, urgency)
             self.suggest_medication(disease)
-        appointment_choice = input("Would you like to make an appointment with a specialist? (yes/no): ").lower().strip()
-        if appointment_choice == "yes":
-            self.make_specialist_appointment(disease)
-
-    def make_specialist_appointment(self, disease):
-        specialist_type = self.diseases_df[self.diseases_df['boala_denumire'] == disease]['medic_specialist'].iloc[0]
-        print(f"We need to find a {specialist_type} specialist for your condition.")
-
-        # Find users who are doctors and specialize in the required field
-        matching_doctors = self.users_df[
-            (self.users_df['Type'] == 'Doctor') & (self.users_df['Specialty'] == specialist_type)]
-
-        if matching_doctors.empty:
-            print("Sorry, no specialist available for this condition.")
-            return
-
-        print("Available specialists:")
-        for idx, doctor in matching_doctors.iterrows():
-            print(f"{idx}: {doctor['Username']}")
-
-        doctor_choice = input("Please select a doctor by entering the corresponding index: ").strip()
-
-        # Check if the input is a valid index
-        if not doctor_choice.isdigit() or int(doctor_choice) not in matching_doctors.index:
-            print("Invalid selection. Please select a valid index.")
-            return
-
-        doctor_index = int(doctor_choice)
-        doctor_username = matching_doctors.loc[doctor_index, 'Username']
-        print(f"Appointment will be made with Dr. {doctor_username}.")
-
-        # Proceed to make the appointment
-        self.schedule_doctor_appointment(doctor_username)
-
-    def get_doctor_schedule(self, doctor_username):
-        # Get the schedule for the next 3 days for the specified doctor
-        current_date = datetime.now().date()
-        doctor_schedule = []
-
-        for _ in range(3):
-            # Check if there is an entry for the current date in the schedule CSV
-            schedule_entry = self.doctor_schedule_df[
-                (self.doctor_schedule_df['Username'] == doctor_username) &
-                (self.doctor_schedule_df['Date'] == current_date)
-            ]
-
-            if not schedule_entry.empty:
-                # Doctor's schedule for the current date is not empty
-                available_slots = schedule_entry['AvailableSlots'].iloc[0]
-                doctor_schedule.append(f"{current_date.strftime('%A')}, {available_slots}")
-            else:
-                # Doctor's schedule for the current date is open
-                doctor_schedule.append(f"{current_date.strftime('%A')}, Open")
-
-            # Move to the next day
-            current_date += timedelta(days=1)
-
-        return doctor_schedule
-
-    def schedule_doctor_appointment(self, doctor_username):
-        # Get doctor's availability and schedule appointment
-        doctor_schedule = self.get_doctor_schedule(doctor_username)
-        if not doctor_schedule:
-            print("Failed to schedule appointment. Please try again later.")
-            return
-
-        # Print doctor's available slots
-        print(f"Available slots for Dr. {doctor_username}:")
-        for idx, slot in enumerate(doctor_schedule, start=1):
-            print(f"{idx}: {slot}")
-
-        slot_choice = input("Please select a slot by entering the corresponding index: ").strip()
-
-        # Check if the input is a valid index
-        if not slot_choice.isdigit() or int(slot_choice) < 1 or int(slot_choice) > len(doctor_schedule):
-            print("Invalid selection. Please select a valid index.")
-            return
-
-        selected_slot = doctor_schedule[int(slot_choice) - 1]
-        if "Open" in selected_slot:
-            # Slot is open, schedule the appointment
-            print(f"Appointment with Dr. {doctor_username} scheduled for {selected_slot}.")
-            appointment_date = selected_slot.split(',')[0]
-            appointment_hour = input("Please enter the appointment hour: ").strip()
-            self.update_doctor_schedule(doctor_username, appointment_date, appointment_hour)
-        else:
-            print("Selected slot is not available. Please choose another slot.")
-    def update_doctor_schedule(self, doctor_username, date, appointment_hour):
-        # Update the doctor's schedule CSV to mark the selected hour as booked
-        new_entry = pd.DataFrame({
-            'Username': [doctor_username],
-            'Date': [date],
-            'AppointmentHour': [appointment_hour]
-        })
-        self.doctor_schedule_df = pd.concat([self.doctor_schedule_df, new_entry], ignore_index=True)
-        self.doctor_schedule_df.to_csv(self.doctor_schedule_csv, index=False)
     def calculate_disease_probabilities(self, symptoms):
         # Example implementation - adjust based on your dataset structure
         disease_symptom_count = {}
