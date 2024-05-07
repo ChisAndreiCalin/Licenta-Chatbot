@@ -4,7 +4,6 @@ import random
 from datetime import datetime, timedelta
 import hashlib
 import ast
-import re
 
 
 class Chatbot:
@@ -50,6 +49,20 @@ class Chatbot:
     def check_password(self, hashed_password, user_password):
         """Verify a stored password against one provided by user."""
         return hashed_password == hashlib.sha256(user_password.encode()).hexdigest()
+
+    def login_or_register(self):
+        user_action = input("Do you want to (login) or (register)? ").lower().strip()
+        while user_action not in ["login", "register"]:
+            print("Please type 'login' or 'register'.")
+            user_action = input("Do you want to (login) or (register)? ").lower().strip()
+
+        if user_action == "login":
+            self.login_user()
+        elif user_action == "register":
+            self.register_user()
+        else:
+            print("Invalid action. Please type 'login' or 'register'.")
+
 
     def register_user(self):
         username = input("Choose a username: ")
@@ -104,16 +117,15 @@ class Chatbot:
                 self.review_mistakes()
         else:
             print("Invalid username or password.")
+
     def review_mistakes(self):
-        # Ensure the DataFrame is correctly handling lists
+        # Correct handling of lists stored in CSV
         for column in ['reporters', 'admin_reviews']:
             if column in self.mistakes_df.columns:
                 self.mistakes_df[column] = self.mistakes_df[column].apply(
                     lambda x: ast.literal_eval(x) if isinstance(x, str) else x)
-            else:
-                # Initialize column with empty lists if it doesn't exist
-                self.mistakes_df[column] = [[] for _ in range(len(self.mistakes_df))]
-        to_review = self.mistakes_df[(self.mistakes_df['reporters'].apply(lambda x: len(x) >= 2)) & (
+
+        to_review = self.mistakes_df[(self.mistakes_df['reporters'].apply(lambda x: len(x) >= 1)) & (
             ~self.mistakes_df['admin_reviews'].apply(lambda x: self.current_user in x))]
 
         if to_review.empty:
@@ -124,19 +136,59 @@ class Chatbot:
             print(
                 f"Mistake ID: {index}, Type: {mistake['mistake_type']}, Original: {mistake['original_mistake']}, Correction: {mistake['correct_answer']}")
             action = input("Approve correction? (yes/no): ").lower()
+
             if action == 'yes':
-                # Process correction...
                 print("Correction approved and processed.")
+                if mistake['mistake_type'] == 'medicine':
+                    self.update_csv(mistake, self.medicines_csv, [
+                        "Denumirea comerciala", "DCI", "Forma", "Conc", "Firma / Tara detinatoare", "Ambalaj", "Pres.",
+                        "ATC", "Doza_Adult", "Doza_Copil", "Simptome_combatute"
+                    ], 0)  # 0 is the index for "Denumirea comerciala"
+                elif mistake['mistake_type'] == 'disease':
+                    self.update_csv(mistake, self.diseases_csv, [
+                        "cod_999", "boala_denumire", "simptome", "medicamentatie", "medic_specialist", "Urgency",
+                        "probabilitate"
+                    ], 1)  # 1 is the index for "boala_denumire"
             else:
                 print("Correction rejected.")
 
-            # Update the admin_reviews list
             admin_reviews = self.mistakes_df.at[index, 'admin_reviews']
             admin_reviews.append(self.current_user)
             self.mistakes_df.at[index, 'admin_reviews'] = admin_reviews
 
         self.mistakes_df.to_csv(self.mistakes_csv, index=False)
 
+    def update_csv(self, mistake, csv_path, columns, match_column_index):
+        data_df = pd.read_csv(csv_path)
+        correct_info = mistake['correct_answer'].split(':')  # Using ':' based on your example
+
+        # Check that correction info matches expected columns
+        if len(correct_info) != len(columns):
+            print("Error: Correction information does not match the expected number of columns.")
+            return
+
+        # Attempt to locate the record
+        row_indices = data_df[data_df[columns[match_column_index]] == mistake['original_mistake']].index
+        if not row_indices.empty:
+            for idx in row_indices:  # This handles multiple or single index cases
+                for col, value in zip(columns, correct_info):
+                    # Check the data type of the column and cast value accordingly
+                    col_dtype = data_df[col].dtype
+                    try:
+                        if pd.api.types.is_integer_dtype(col_dtype):
+                            value = int(value)  # Convert value to integer if column is integer type
+                        elif pd.api.types.is_float_dtype(col_dtype):
+                            value = float(value)  # Convert value to float if column is float type
+                        elif pd.api.types.is_string_dtype(col_dtype):
+                            value = str(value)  # Keep value as string if column is string type
+                        data_df.at[idx, col] = value
+                    except ValueError as e:
+                        print(f"Error converting {value} to {col_dtype}: {e}")
+
+            data_df.to_csv(csv_path, index=False)
+            print(f"Updated {csv_path} successfully.")
+        else:
+            print("No matching record found to update.")
     def check_health_update_needed(self, user):
         last_update = datetime.strptime(user['LastLogin'], '%Y-%m-%d %H:%M:%S.%f')
         if datetime.now() > last_update + timedelta(days=30):
@@ -228,18 +280,6 @@ class Chatbot:
             else:
                 print("No close matches found. Please try again.")
 
-    def login_or_register(self):
-        user_action = input("Do you want to (login) or (register)? ").lower().strip()
-        while user_action not in ["login", "register"]:
-            print("Please type 'login' or 'register'.")
-            user_action = input("Do you want to (login) or (register)? ").lower().strip()
-
-        if user_action == "login":
-            self.login_user()
-        elif user_action == "register":
-            self.register_user()
-        else:
-            print("Invalid action. Please type 'login' or 'register'.")
 
     def load_response_mapping(self):
         # Maps keywords to response types for dynamic lookup
@@ -364,7 +404,8 @@ class Chatbot:
 
         disease_probabilities = self.calculate_disease_probabilities(symptoms)
         if not disease_probabilities:
-            print("We couldn't identify your condition based on the symptoms provided. Consulting a doctor is recommended.")
+            print(
+                "We couldn't identify your condition based on the symptoms provided. Consulting a doctor is recommended.")
             return
 
         print("Based on your symptoms, here are the possible conditions and their respective probabilities:")
@@ -373,10 +414,10 @@ class Chatbot:
             urgency = self.diseases_df[self.diseases_df['boala_denumire'] == disease]['Urgency'].iloc[0]
             self.recommend_specialist_based_on_urgency(disease, urgency)
             self.suggest_medication(disease)
-        appointment_choice = input("Would you like to make an appointment with a specialist? (yes/no): ").lower().strip()
+        appointment_choice = input(
+            "Would you like to make an appointment with a specialist? (yes/no): ").lower().strip()
         if appointment_choice == "yes":
             self.make_specialist_appointment(disease)
-
     def make_specialist_appointment(self, disease):
         specialist_type = self.diseases_df[self.diseases_df['boala_denumire'] == disease]['medic_specialist'].iloc[0]
         print(f"We need to find a {specialist_type} specialist for your condition.")
@@ -469,8 +510,8 @@ class Chatbot:
         })
         self.doctor_schedule_df = pd.concat([self.doctor_schedule_df, new_entry], ignore_index=True)
         self.doctor_schedule_df.to_csv(self.doctor_schedule_csv, index=False)
+
     def calculate_disease_probabilities(self, symptoms):
-        # Example implementation - adjust based on your dataset structure
         disease_symptom_count = {}
         for symptom in symptoms:
             for _, disease_row in self.diseases_df.iterrows():
@@ -483,16 +524,23 @@ class Chatbot:
                     else:
                         disease_symptom_count[disease_row['boala_denumire']] = match_count
 
-        # Filter out diseases with less than two matching symptoms
-        filtered_diseases = {disease: count for disease, count in disease_symptom_count.items() if count >= 2}
-        total_matching_symptoms = sum(filtered_diseases.values())
-        disease_probabilities = {disease: (count / total_matching_symptoms) * 100 for disease, count in
-                                 filtered_diseases.items()}
+        # Filter out diseases with less than two matching symptoms and parse fractional probabilities
+        disease_probabilities = {}
+        for disease, count in disease_symptom_count.items():
+            if count >= 2:
+                probability_str = self.diseases_df[self.diseases_df['boala_denumire'] == disease]['probabilitate'].iloc[
+                    0]
+                numerator, denominator = probability_str.split('/')
+                probability = (float(numerator) / float(denominator)) * 100  # Convert to percentage
+                disease_probabilities[disease] = probability
+
         return disease_probabilities
 
     def suggest_medication(self, disease):
         medication = self.diseases_df[self.diseases_df['boala_denumire'] == disease]['medicamentatie'].iloc[0]
         print(f"For {disease}, consider taking: {medication}")
+
+    import pandas as pd
 
     def record_feedback(self):
         if self.current_user is None or self.users_df[self.users_df['Username'] == self.current_user]['Type'].iloc[0] not in ['Doctor', 'Admin']:
@@ -501,29 +549,36 @@ class Chatbot:
 
         mistake_type = input("Is this mistake related to a 'medicine' or a 'disease'? ")
         original_mistake = input("Please specify the original information (e.g., row name or disease/medicine name): ")
-        correct_answer = input("Please provide the full correct row or information: ")
+        correct_answer = input("Please provide the full correct row or information: make sure you use : as delimiterfor the collumns you want also please write all information  ")
 
-        # Check if a similar mistake has already been reported
-        existing_mistake = self.mistakes_df[(self.mistakes_df['mistake_type'] == mistake_type) & (
-                    self.mistakes_df['original_mistake'] == original_mistake)]
+        # Ensure all required columns exist and are initialized correctly
+        required_columns = {'mistake_type', 'original_mistake', 'correct_answer', 'reporters', 'admin_reviews'}
+        missing_columns = required_columns - set(self.mistakes_df.columns)
+        for column in missing_columns:
+            if column in ['reporters', 'admin_reviews']:
+                self.mistakes_df[column] = self.mistakes_df.apply(lambda x: [], axis=1)
+            else:
+                self.mistakes_df[column] = pd.NA
 
-        if not existing_mistake.empty:
-            # If similar mistake exists, append the current user to the reporters list (if they haven't already reported it)
-            if self.current_user not in existing_mistake['reporters'].iloc[0]:
-                existing_mistake['reporters'].iloc[0].append(self.current_user)
-                print("Your report has been added to an existing mistake report.")
-        else:
-            # If it's a new mistake, create a new record
-            self.mistakes_df = self.mistakes_df.append({
-                'mistake_type': mistake_type,
-                'original_mistake': original_mistake,
-                'correct_answer': correct_answer,
-                'reporters': [self.current_user],
-                'admin_reviews': []
-            }, ignore_index=True)
-            print("Your feedback has been recorded for review.")
+        new_record = pd.DataFrame([{
+            'mistake_type': mistake_type,
+            'original_mistake': original_mistake,
+            'correct_answer': correct_answer,
+            'reporters': [self.current_user],
+            'admin_reviews': []
+        }])
 
-        self.mistakes_df.to_csv(self.mistakes_csv, index=False)
+        # Add new record to DataFrame
+        self.mistakes_df = pd.concat([self.mistakes_df, new_record], ignore_index=True)
+
+        print("Current DataFrame state before saving:")
+        print(self.mistakes_df)
+
+        try:
+            self.mistakes_df.to_csv(self.mistakes_csv, index=False)
+            print(f"Data successfully written to {self.mistakes_csv}.")
+        except Exception as e:
+            print("Failed to write data to CSV:", e)
 
     def respond_dynamically(self, message):
         intent, _ = process.extractOne(message, self.responses_df['Keywords'].unique())
