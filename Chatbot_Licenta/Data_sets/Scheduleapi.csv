@@ -1,4 +1,11 @@
-Username,Date,AppointmentHour,PatientUsername
-Calinutz,24/05/08,12,JohnDoe
-Calinutz,24/05/09,14,JaneDoe
-Calinutz,24/05/10,14:00,newuser
+Username,Date,AppointmentHour,PatientUsername,status
+Calinutz,24/05/08,12,JohnDoe,Pending
+Calinutz,24/05/09,14,JaneDoe,Pending
+Calinutz,24/05/10,14:00,newuser,Pending
+Calinutz,24/05/11,14:00,newuser,Pending
+Calinutz,24/05/11,13:00,Calin,Pending
+Calinutz,24/05/10,16:00,Calin,Pending
+Calinutz,24/05/09,12:00,Calin,Pending
+Calinutz,24/05/08,23:00,Calin,Pending
+Calinutz,24/05/12,12:00,Calin,Pending
+Calinutz,24/05/11,,mihai,Pending

@@ -1,8 +1,13 @@
 from ChatbotClass.Chatbotapi import ChatbotAPI
 from constants import *
 from flask import Flask, request, jsonify
+from flask_cors import CORS
+
+
 import json
 app = Flask(__name__)
+CORS(app)
+
 csvmedicamente = DATASET_FOLDER + SEPARATOR + "Medicamente_Csv.csv"
 csvboli = DATASET_FOLDER + SEPARATOR + "CSVBoli.csv"
 csvuser = DATASET_FOLDER + SEPARATOR + "userCsv.csv"
@@ -29,6 +34,19 @@ def login():
     password = data.get('password')
     result = chatbot.login_user(username, password)
     return jsonify({'message': result})
+@app.route('/users/<username>', methods=['GET'])
+def get_user(username):
+    user = chatbot.get_user(username)
+    if user:
+        return jsonify(user)
+    else:
+        return jsonify({'message': 'User not found'}), 404
+@app.route('/check_update_health', methods=['POST'])
+def check_update_health():
+    data = request.get_json()
+    username = data.get('username')
+    result = chatbot.check_health_update_needed(username)
+    return jsonify({'message': result})
 
 @app.route('/update_health', methods=['POST'])
 def update_health():
@@ -37,7 +55,7 @@ def update_health():
     age = data.get('age')
     weight = data.get('weight')
     height = data.get('height')
-    result = chatbot.check_health_update_needed(username, age, weight, height)
+    result = chatbot.update_user_health(username, age, weight, height)
     return jsonify({'message': result})
 
 
@@ -114,6 +132,51 @@ def get_specialists_avaliable(disease):
     if not specialists:
         return jsonify({'message': 'No specialists available for this disease.'}), 404
     return jsonify({'specialists': specialists})
+
+@app.route('/medicine_info', methods=['POST'])
+def medicine_info():
+    data = request.json
+    medicine_name = data.get('medicine_name')
+    result = chatbot.provide_medicine_info(medicine_name)
+    return jsonify(result)
+
+@app.route('/medicine_suggestions', methods=['POST'])
+def medicine_suggestions():
+    data = request.json
+    medicine_input = data.get('medicine_input')
+    result = chatbot.get_user_medicine(medicine_input)
+    return jsonify(result)
+
+@app.route('/symptom_medicine', methods=['POST'])
+def symptom_medicine():
+    data = request.json
+    symptom = data.get('symptom')
+    result = chatbot.handle_symptom_medicine_request(symptom)
+    return jsonify(result)
+
+@app.route('/record_feedback', methods=['POST'])
+def record_feedback():
+    data = request.json
+    mistake_type = data.get('mistake_type')
+    original_mistake = data.get('original_mistake')
+    correct_answer = data.get('correct_answer')
+    result = chatbot.record_feedback(mistake_type, original_mistake, correct_answer)
+    return jsonify(result)
+
+@app.route('/response_type', methods=['POST'])
+def response_type():
+    data = request.json
+    user_input = data.get('user_input')
+    response_type = chatbot.get_response_type(user_input)
+    return jsonify({'response_type': response_type})
+
+
+@app.route('/respond_dynamically', methods=['POST'])
+def respond_dynamically():
+    data = request.json
+    message = data.get('message')
+    response = chatbot.respond_dynamically(message)
+    return jsonify({'response': response})
 
 if __name__ == '__main__':
     app.run(debug=True)

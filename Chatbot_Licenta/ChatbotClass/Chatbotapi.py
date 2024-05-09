@@ -2,6 +2,8 @@ import pandas as pd
 import hashlib
 from datetime import datetime, timedelta
 import ast
+from fuzzywuzzy import process, fuzz
+import random
 
 
 class ChatbotAPI:
@@ -13,12 +15,12 @@ class ChatbotAPI:
         self.mistakes_csv = mistakes_csv
         self.doctor_schedule_csv = doctor_schedule_csv
 
-        self.users_df = self.load_csv(self.users_csv,['Username', 'Password', 'Age', 'Weight', 'Height', 'Type', 'LastLogin','CreationDate', 'Specialty'])
+        self.users_df = self.load_csv(self.users_csv,['Username', 'Password', 'Age', 'Weight', 'Height', 'Type', 'LastLogin','CreationDate', 'Specialty', 'LastUpdate'])
         self.medicines_df = self.load_csv(self.medicines_csv,['Denumirea comerciala', 'DCI', 'Forma', 'Conc', 'Firma / Tara detinatoare','Ambalaj', 'Pres.', 'ATC', 'Doza_Adult', 'Doza_Copil', 'Simptome_combatute'])
         self.responses_df = self.load_csv(self.responses_csv, ['Keywords', 'ResponseType', 'Response'])
         self.mistakes_df = self.load_csv(self.mistakes_csv,['mistake_type', 'original_mistake', 'correct_answer', 'reporters', 'admin_reviews'])
         self.diseases_df = self.load_csv(self.diseases_csv, ['cod_999','boala_denumire','simptome','medicamentatie','medic_specialist','Urgency','probabilitate'])
-        self.doctor_schedule_df = self.load_csv(self.doctor_schedule_csv, ['Username','Date','AppointmentHour','PatientUsername'])
+        self.doctor_schedule_df = self.load_csv(self.doctor_schedule_csv, ['Username','Date','AppointmentHour','PatientUsername', 'Status'])
         self.mistakes_df = pd.read_csv(self.mistakes_csv)
         if 'admin_reviews' in self.mistakes_df.columns:
             self.mistakes_df['admin_reviews'] = self.mistakes_df['admin_reviews'].apply(ast.literal_eval)
@@ -27,7 +29,37 @@ class ChatbotAPI:
 
         self.current_user = None
         self.current_user_type = None
+        self.current_user_age = None  # Add an attribute to store the current user's age
+        self.preprocess_medicine_names()
+        self.load_response_mapping()
 
+    def get_user(self, username):
+        user_df = self.users_df[self.users_df['Username'] == username]
+        if not user_df.empty:
+            user = user_df.iloc[0].to_dict()
+            return user
+        return None
+    def load_response_mapping(self):
+        self.response_mapping = {}
+        for _, row in self.responses_df.iterrows():
+            keywords = row['Keywords'].split('.')  # Assuming keywords are period-separated
+            for keyword in keywords:
+                self.response_mapping[keyword.strip().lower()] = row['ResponseType']
+
+    def get_response_type(self, user_input):
+        user_input = user_input.lower()
+        for keyword, response_type in self.response_mapping.items():
+            if keyword in user_input:
+                return response_type
+        return "unknown"
+
+    def respond_dynamically(self, message):
+        intent, _ = process.extractOne(message, self.responses_df['Keywords'].unique())
+        responses = self.responses_df[self.responses_df['Keywords'] == intent]['Response'].tolist()
+        if responses:
+            return random.choice(responses)
+        else:
+            return "I'm not sure how to respond to that. Can you tell me more?"
 
     def load_csv(self, file_path, columns):
         try:
@@ -61,10 +93,13 @@ class ChatbotAPI:
         new_user = {
             'Username': username, 'Password': hashed_password, 'Age': age, 'Weight': weight,
             'Height': height, 'Type': user_type, 'LastLogin': datetime.now(), 'CreationDate': datetime.now(),
-            'Specialty': specialty
+            'Specialty': specialty, 'LastUpdate': datetime.now()
         }
         self.users_df = pd.concat([self.users_df, pd.DataFrame([new_user])], ignore_index=True)
         self.users_df.to_csv(self.users_csv, index=False)
+        self.current_user= username
+        self.current_user_type=user_type
+        self.current_user_age = age
         return f"Welcome, {username}! You have been registered as a {user_type}."
 
     def login_user(self, username, password):
@@ -76,6 +111,8 @@ class ChatbotAPI:
         if self.check_password(user['Password'], password):
             self.current_user = username
             self.current_user_type = user['Type']
+            self.current_user_age = user['Age']  # Set the current user's age
+
             return f"Welcome back, {username}!"
         else:
             return "Invalid username or password."
@@ -161,27 +198,43 @@ class ChatbotAPI:
         self.users_df.to_csv(self.users_csv, index=False)
         return f"Specialty updated to {new_specialty}."
 
-    def check_health_update_needed(self, username, age, weight, height):
-            user_df = self.users_df[self.users_df['Username'] == username]
-            if user_df.empty:
-                return "User not found."
+    def check_health_update_needed(self, username):
+        user_df = self.users_df[self.users_df['Username'] == username]
+        if user_df.empty:
+            return "User not found."
 
-            user = user_df.iloc[0]
-            last_update = datetime.strptime(user['LastLogin'], '%Y-%m-%d %H:%M:%S.%f')
-            if datetime.now() > last_update + timedelta(days=30):
-                # Update the user's information with correctly typed values
-                self.update_user_health(username, age, weight, height)
-                return "Health profile updated."
-            return "Your health profile is up to date."
+        user = user_df.iloc[0]
+        creation_date = datetime.strptime(user['CreationDate'], '%Y-%m-%d %H:%M:%S.%f')
+        last_update_str = user.get('LastUpdate')
+
+        current_date = datetime.now()
+        last_update = None if pd.isna(last_update_str) else datetime.strptime(last_update_str, '%Y-%m-%d %H:%M:%S.%f')
+
+        # Check if today is the creation day of the month
+        if current_date.day == creation_date.day:
+            return "Health profile needs update to health parameters."
+
+        # Check if last update is missing or more than a month ago
+        if last_update is None or current_date - last_update > timedelta(days=30):
+            return "Health profile needs update to health parameters."
+
+        return "Your health profile is up to date."
 
     def update_user_health(self, username, age, weight, height):
-        user_index = self.users_df[self.users_df['Username'] == username].index[0]
-        self.users_df.at[user_index, 'Age'] = age
-        self.users_df.at[user_index, 'Weight'] = weight
-        self.users_df.at[user_index, 'Height'] = height
-        self.users_df.at[user_index, 'LastLogin'] = datetime.now()
-        self.users_df.to_csv(self.users_csv, index=False)
+        try:
+            # Ensure username exists
+            if username not in self.users_df['Username'].values:
+                return "Username not found."
 
+            user_index = self.users_df[self.users_df['Username'] == username].index[0]
+            self.users_df.at[user_index, 'Age'] = age
+            self.users_df.at[user_index, 'Weight'] = weight
+            self.users_df.at[user_index, 'Height'] = height
+            self.users_df.at[user_index, 'LastUpdate'] = datetime.now()
+            self.users_df.to_csv(self.users_csv, index=False)
+            return "Your health profile is up to date."
+        except Exception as e:
+            return f"An error occurred: {str(e)}"
     def update_csv(self, mistake, csv_path, columns, match_column_index):
         data_df = pd.read_csv(csv_path)
         correct_info = mistake['correct_answer'].split(':')  # Assuming ':' as the delimiter
@@ -328,3 +381,109 @@ class ChatbotAPI:
         # Format the list of specialists to return
         specialists_list = matching_doctors[['Username', 'Specialty']].to_dict(orient='records')
         return specialists_list
+
+    def preprocess_medicine_names(self):
+        # Extract base name by selecting the first part before any dosage or unit information
+        self.medicines_df['Simple Name'] = self.medicines_df['Denumirea comerciala'].apply(
+            lambda x: x.split()[0].upper())
+        # Create a dictionary mapping simple names to their respective full commercial names
+        self.simple_to_full_name = \
+        self.medicines_df[['Simple Name', 'Denumirea comerciala']].drop_duplicates().set_index('Simple Name')[
+                'Denumirea comerciala'].to_dict()
+    def provide_medicine_info(self, medicine_name):
+        if not medicine_name:
+            return {"message": "No medicine name provided. Exiting the medicine info request."}
+
+        # Case-insensitive exact match from user-confirmed or directly provided input
+        medicine_name = medicine_name.lower()
+        matches = self.medicines_df[self.medicines_df['Denumirea comerciala'].str.lower() == medicine_name]
+
+        if matches.empty:
+            return {
+                "message": "Sorry, we couldn't find any information on the requested medicine. Please check the spelling or try another name."
+            }
+        else:
+            medicine_info_list = []
+            for index, medicine_info in matches.iterrows():
+                info = {column.replace('_', ' '): medicine_info[column] for column in matches.columns if
+                        pd.notna(medicine_info[column]) and medicine_info[column] != ''}
+                medicine_info_list.append(info)
+            return {"message": f"Found {len(matches)} medicine(s) with the name '{medicine_name}':",
+                    "data": medicine_info_list}
+
+    def get_user_medicine(self, medicine_input):
+        if 'Simple Name' not in self.medicines_df.columns:
+            self.preprocess_medicine_names()
+        unique_medicines = list(self.medicines_df['Simple Name'].str.upper().unique())
+
+        possible_matches = process.extractBests(medicine_input.upper(), unique_medicines, scorer=fuzz.token_sort_ratio,
+                                                limit=5)
+
+        if possible_matches:
+            suggestions = []
+            for match, score in possible_matches:
+                full_medicine_name = self.simple_to_full_name.get(match, match)
+                suggestions.append({"name": full_medicine_name, "score": score})
+            return {"suggestions": suggestions}
+        else:
+            return {"message": "No close matches found. Please try again."}
+
+    def handle_symptom_medicine_request(self, symptom):
+        if not self.current_user:
+            return {"message": "No user is currently logged in."}
+
+        # Ensure symptom is in lower case for matching
+        symptom = symptom.lower().strip()
+
+        # Filter medicines based on the provided symptom
+        matched_medicines = self.medicines_df[self.medicines_df['Simptome_combatute'].str.lower().str.contains(symptom)]
+
+        if matched_medicines.empty:
+            return {"message": "No medicines found for the provided symptom."}
+        else:
+            medicines_info = []
+            unique_simple_names = set()
+            for index, medicine_info in matched_medicines.iterrows():
+                # Get the simple name of the medicine
+                simple_name = medicine_info['Denumirea comerciala'].split()[0].upper()
+                unique_simple_names.add(simple_name)
+
+            for simple_name in unique_simple_names:
+                # Get the full name of the medicine from the dataframe
+                full_name = matched_medicines[matched_medicines['Denumirea comerciala'].str.startswith(simple_name)][
+                    'Denumirea comerciala'].iloc[0]
+                # Get the appropriate dosage based on age
+                dosage_column = 'Doza_Adult' if self.current_user_age > 16 else 'Doza_Copil'
+                dosage = matched_medicines[matched_medicines['Denumirea comerciala'].str.startswith(simple_name)][
+                    dosage_column].iloc[0]
+                medicines_info.append({"medicine": full_name, "dosage": dosage})
+
+            return {"medicines": medicines_info}
+
+    def record_feedback(self, mistake_type, original_mistake, correct_answer):
+        if self.current_user is None or self.current_user_type not in ['Doctor', 'Admin']:
+            return {"message": "You must be a Doctor or Admin to provide feedback."}
+
+        required_columns = {'mistake_type', 'original_mistake', 'correct_answer', 'reporters', 'admin_reviews'}
+        missing_columns = required_columns - set(self.mistakes_df.columns)
+        for column in missing_columns:
+            if column in ['reporters', 'admin_reviews']:
+                self.mistakes_df[column] = self.mistakes_df.apply(lambda x: [], axis=1)
+            else:
+                self.mistakes_df[column] = pd.NA
+
+        new_record = pd.DataFrame([{
+            'mistake_type': mistake_type,
+            'original_mistake': original_mistake,
+            'correct_answer': correct_answer,
+            'reporters': [self.current_user],
+            'admin_reviews': []
+        }])
+
+        self.mistakes_df = pd.concat([self.mistakes_df, new_record], ignore_index=True)
+
+        try:
+            self.mistakes_df.to_csv(self.mistakes_csv, index=False)
+            return {"message": f"Data successfully written to {self.mistakes_csv}."}
+        except Exception as e:
+            return {"message": f"Failed to write data to CSV: {e}"}

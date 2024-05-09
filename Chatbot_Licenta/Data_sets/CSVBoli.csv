@@ -1,5 +1,5 @@
 cod_999,boala_denumire,simptome,medicamentatie,medic_specialist,Urgency,probabilitate
-34,Alte infectii intestinale bacteriene,GRETURI.DIAREE,MOTILIUM.NO-SPA.TASECTAN,GASTROENTEROLOGIE,NON-URGENT,8/10
+34,Alte infectii intestinale bacteriene,GRETURI.DIAREE,MOTILIUM.NO-SPA.TASECTAN,GASTROENTEROLOGIE,NON-URGENT,8.1/10
 35,Infectie bacteriana intestinala ,Diaree.durere abdominala ,MOTILIUM.NO-SPA.TASECTAN,GASTROENTEROLOGIE,NON-URGENT,7/10
 36,Infectie intestinala non-bacteriana,Diaree.durere abdominala,MOTILIUM.NO-SPA.TASECTAN,GASTROENTEROLOGIE,NON-URGENT,6/10
 37,Alte intoxicatii alimentare de origine bacteriana,GRETURI.DIAREE.VARSATURI,MOTILIUM.NO-SPA.TASECTAN,GASTROENTEROLOGIE,NON-URGENT,8/10
