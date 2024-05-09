@@ -4,6 +4,7 @@ import Home from './pages/Home';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Chat from './pages/Chat';
+import MistakeReview from './pages/MistakeReview';
 import './App.css';
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
                 <Route path="/" element={<Home />} />
                 <Route path="/login" element={<Login setCurrentUser={setCurrentUser} setCurrentUserAge={setCurrentUserAge} setCurrentUserType={setCurrentUserType} />} />
                 <Route path="/register" element={<Register />} />
+                <Route path="/mistake-review" element={<MistakeReview currentUser={currentUser} />} />
                 <Route path="/chat" element={<Chat currentUser={currentUser} currentUserAge={currentUserAge} currentUserType={currentUserType}/>} />
             </Routes>
         </div>

@@ -44,7 +44,16 @@ function Login({ setCurrentUser, setCurrentUserAge, setCurrentUserType }) {
                 if (checkHealthResponse.data.message === 'Health profile needs update to health parameters.') {
                     setUpdateHealth(true);
                 } else {
-                    navigate('/chat');
+                    if (user.Type === 'Admin') {
+                        const mistakesResponse = await axios.get('http://127.0.0.1:5000/mistakes');
+                        if (mistakesResponse.data.mistakes && mistakesResponse.data.mistakes.length > 0) {
+                            navigate('/mistake-review');
+                        } else {
+                            navigate('/chat');
+                        }
+                    } else {
+                        navigate('/chat');
+                    }
                 }
             } else {
                 setError('Invalid username or password');
@@ -69,7 +78,19 @@ function Login({ setCurrentUser, setCurrentUserAge, setCurrentUserType }) {
             });
 
             if (response.data.message === 'Your health profile is up to date.') {
-                navigate('/chat');
+                const userResponse = await axios.get(`http://127.0.0.1:5000/users/${username}`);
+                const user = userResponse.data;
+
+                if (user.Type === 'Admin') {
+                    const mistakesResponse = await axios.get('http://127.0.0.1:5000/mistakes');
+                    if (mistakesResponse.data.mistakes && mistakesResponse.data.mistakes.length > 0) {
+                        navigate('/mistake-review');
+                    } else {
+                        navigate('/chat');
+                    }
+                } else {
+                    navigate('/chat');
+                }
             } else {
                 setError('Error updating health profile');
             }

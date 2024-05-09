@@ -1,0 +1,19 @@
+.mistake-review-container {
+    padding: 20px;
+    max-width: 600px;
+    margin: auto;
+}
+
+.mistake {
+    border: 1px solid #ccc;
+    padding: 10px;
+    margin-bottom: 10px;
+}
+
+.error-message {
+    color: red;
+}
+
+button {
+    margin-right: 5px;
+}
