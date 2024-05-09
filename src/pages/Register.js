@@ -10,7 +10,9 @@ function Register({ setCurrentUser, setCurrentUserAge, setCurrentUserType }) {
     const [weight, setWeight] = useState('');
     const [height, setHeight] = useState('');
     const [specialPassword, setSpecialPassword] = useState('');
+    const [specialty, setSpecialty] = useState('');
     const [errorMessage, setErrorMessage] = useState('');
+    const [showSpecialtyInput, setShowSpecialtyInput] = useState(false);
     const navigate = useNavigate();
 
     const handleRegister = async (e) => {
@@ -20,9 +22,9 @@ function Register({ setCurrentUser, setCurrentUserAge, setCurrentUserType }) {
             const response = await axios.post('http://127.0.0.1:5000/register', {
                 username,
                 password,
-                age,
-                weight,
-                height,
+                age: parseInt(age),
+                weight: parseFloat(weight),
+                height: parseFloat(height),
                 special_password: specialPassword
             }, {
                 headers: {
@@ -30,17 +32,60 @@ function Register({ setCurrentUser, setCurrentUserAge, setCurrentUserType }) {
                 }
             });
 
-            if (response.data.message.includes("successfully registered")) {
-                setCurrentUser(username);
-                setCurrentUserAge(age);
-                setCurrentUserType('Patient'); // Assuming user type is 'Patient' after registration
+            if (response.data.message.startsWith('Welcome')) {
+                const userResponse = await axios.get(`http://127.0.0.1:5000/users/${username}`);
+                const user = userResponse.data;
 
-                navigate('/chat');
+                setCurrentUser(username);
+                setCurrentUserAge(user.Age);
+                setCurrentUserType(user.Type);
+
+                if (user.Type === 'Doctor') {
+                    setShowSpecialtyInput(true);
+                } else if (user.Type === 'Admin') {
+                    await handleAdminFlow();
+                } else {
+                    navigate('/chat');
+                }
             } else {
                 setErrorMessage(response.data.message);
             }
         } catch (error) {
             setErrorMessage('Error registering');
+        }
+    };
+
+    const handleSpecialtyUpdate = async () => {
+        try {
+            const response = await axios.post('http://127.0.0.1:5000/update_doctor_specialty', {
+                specialty
+            }, {
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            });
+
+            if (response.data.message.includes("Specialty updated")) {
+                navigate('/chat');
+            } else {
+                setErrorMessage(response.data.message);
+            }
+        } catch (error) {
+            setErrorMessage('Error updating specialty');
+        }
+    };
+
+    const handleAdminFlow = async () => {
+        try {
+            const mistakesResponse = await axios.get('http://127.0.0.1:5000/mistakes');
+            if (mistakesResponse.data.message === "No new mistakes to review.") {
+                navigate('/chat');
+            } else {
+                navigate('/mistakes');
+            }
+        } catch (error) {
+            setErrorMessage('Error checking for mistakes');
+            navigate('/chat');
         }
     };
 
@@ -91,6 +136,18 @@ function Register({ setCurrentUser, setCurrentUserAge, setCurrentUserType }) {
                 />
                 <button type="submit">Register</button>
             </form>
+            {showSpecialtyInput && (
+                <div className="specialty-container">
+                    <input
+                        type="text"
+                        placeholder="Enter your specialty"
+                        value={specialty}
+                        onChange={(e) => setSpecialty(e.target.value)}
+                        required
+                    />
+                    <button onClick={handleSpecialtyUpdate}>Update Specialty</button>
+                </div>
+            )}
             {errorMessage && <p className="error-message">{errorMessage}</p>}
         </div>
     );

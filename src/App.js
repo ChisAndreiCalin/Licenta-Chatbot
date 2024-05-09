@@ -17,7 +17,7 @@ function App() {
             <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/login" element={<Login setCurrentUser={setCurrentUser} setCurrentUserAge={setCurrentUserAge} setCurrentUserType={setCurrentUserType} />} />
-                <Route path="/register" element={<Register />} />
+                <Route path="/register" element={<Register setCurrentUser={setCurrentUser} setCurrentUserAge={setCurrentUserAge} setCurrentUserType={setCurrentUserType}/>} />
                 <Route path="/mistake-review" element={<MistakeReview currentUser={currentUser} />} />
                 <Route path="/chat" element={<Chat currentUser={currentUser} currentUserAge={currentUserAge} currentUserType={currentUserType}/>} />
             </Routes>
