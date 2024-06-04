@@ -206,7 +206,7 @@ function Chat({ currentUser, currentUserAge, currentUserType }) {
 
             const medicineInfoMessages = medicineData.map(m => ({
                 sender: 'bot',
-                text: `Medicine: ${m.Denumirea_comerciala}, ATC: ${m.ATC}, Form: ${m.Forma}, Dosage for Adults: ${m.Doza_Adult}, Dosage for Children: ${m.Doza_Copil}, Symptoms Treated: ${m.Simptome_combatute}`
+                text: `Medicine: ${m['Denumirea comerciala']}, ATC: ${m.ATC}, Form: ${m.Forma}, Dosage for Adults: ${m['Doza Adult']}, Dosage for Children: ${m['Doza Copil']}, Ambalaj: ${m.Ambalaj} , Concentratie: ${m.Conc} , Symptoms Treated: ${m['Simptome combatute']}`
             }));
 
             setConversation(prevConversation => [
